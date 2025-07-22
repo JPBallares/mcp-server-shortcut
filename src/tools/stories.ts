@@ -29,6 +29,15 @@ export class StoryTools extends BaseTools {
 		);
 
 		server.tool(
+			"get-story-with-related",
+			"Get a Shortcut story by public ID with related entities (users, teams, workflows, etc.)",
+			{
+				storyPublicId: z.number().positive().describe("The public ID of the story to get"),
+			},
+			async ({ storyPublicId }) => await tools.getStoryWithRelated(storyPublicId),
+		);
+
+		server.tool(
 			"search-stories",
 			"Find Shortcut stories.",
 			{
@@ -110,6 +119,90 @@ export class StoryTools extends BaseTools {
 				due: date,
 			},
 			async (params) => await tools.searchStories(params),
+		);
+
+		server.tool(
+			"search-stories-with-related",
+			"Find Shortcut stories with related entities (users, teams, workflows, etc.).",
+			{
+				id: z.number().optional().describe("Find only stories with the specified public ID"),
+				name: z.string().optional().describe("Find only stories matching the specified name"),
+				description: z
+					.string()
+					.optional()
+					.describe("Find only stories matching the specified description"),
+				comment: z.string().optional().describe("Find only stories matching the specified comment"),
+				type: z
+					.enum(["feature", "bug", "chore"])
+					.optional()
+					.describe("Find only stories of the specified type"),
+				estimate: z
+					.number()
+					.optional()
+					.describe("Find only stories matching the specified estimate"),
+				branch: z.string().optional().describe("Find only stories matching the specified branch"),
+				commit: z.string().optional().describe("Find only stories matching the specified commit"),
+				pr: z.number().optional().describe("Find only stories matching the specified pull request"),
+				project: z.number().optional().describe("Find only stories matching the specified project"),
+				epic: z.number().optional().describe("Find only stories matching the specified epic"),
+				objective: z
+					.number()
+					.optional()
+					.describe("Find only stories matching the specified objective"),
+				state: z.string().optional().describe("Find only stories matching the specified state"),
+				label: z.string().optional().describe("Find only stories matching the specified label"),
+				owner: user("owner"),
+				requester: user("requester"),
+				team: z
+					.string()
+					.optional()
+					.describe(
+						"Find only stories matching the specified team. This can be a team mention name or team name.",
+					),
+				skillSet: z
+					.string()
+					.optional()
+					.describe("Find only stories matching the specified skill set"),
+				productArea: z
+					.string()
+					.optional()
+					.describe("Find only stories matching the specified product area"),
+				technicalArea: z
+					.string()
+					.optional()
+					.describe("Find only stories matching the specified technical area"),
+				priority: z
+					.string()
+					.optional()
+					.describe("Find only stories matching the specified priority"),
+				severity: z
+					.string()
+					.optional()
+					.describe("Find only stories matching the specified severity"),
+				isDone: is("completed"),
+				isStarted: is("started"),
+				isUnstarted: is("unstarted"),
+				isUnestimated: is("unestimated"),
+				isOverdue: is("overdue"),
+				isArchived: is("archived").default(false),
+				isBlocker: is("blocking"),
+				isBlocked: is("blocked"),
+				hasComment: has("a comment"),
+				hasLabel: has("a label"),
+				hasDeadline: has("a deadline"),
+				hasOwner: has("an owner"),
+				hasPr: has("a pr"),
+				hasCommit: has("a commit"),
+				hasBranch: has("a branch"),
+				hasEpic: has("an epic"),
+				hasTask: has("a task"),
+				hasAttachment: has("an attachment"),
+				created: date,
+				updated: date,
+				completed: date,
+				due: date,
+			},
+			async (params) => await tools.searchStoriesWithRelated(params),
 		);
 
 		server.tool(
@@ -307,6 +400,15 @@ The story will be added to the default state for the workflow.
 		);
 
 		server.tool(
+			"get-stories-by-external-link-with-related",
+			"Find all stories that contain a specific external link with related entities (users, teams, workflows, etc.)",
+			{
+				externalLink: z.string().url().max(2048).describe("The external link URL to search for"),
+			},
+			async ({ externalLink }) => await tools.getStoriesByExternalLinkWithRelated(externalLink),
+		);
+
+		server.tool(
 			"set-story-external-links",
 			"Replace all external links on a story with a new set of links",
 			{
@@ -439,7 +541,7 @@ The story will be added to the default state for the workflow.
 
 		return this.toResult(
 			`Result (first ${stories.length} shown of ${total} total stories found):`,
-			await this.entitiesWithRelatedEntities(stories, "stories"),
+			stories,
 		);
 	}
 
@@ -449,10 +551,7 @@ The story will be added to the default state for the workflow.
 		if (!story)
 			throw new Error(`Failed to retrieve Shortcut story with public ID: ${storyPublicId}.`);
 
-		return this.toResult(
-			`Story: sc-${storyPublicId}`,
-			await this.entityWithRelatedEntities(story, "story"),
-		);
+		return this.toResult(`Story: sc-${storyPublicId}`, story);
 	}
 
 	async createStoryComment({ storyPublicId, text }: { storyPublicId: number; text: string }) {
@@ -653,10 +752,7 @@ The story will be added to the default state for the workflow.
 			return this.toResult(`No stories found with external link: ${externalLink}`);
 		}
 
-		return this.toResult(
-			`Found ${total} stories with external link: ${externalLink}`,
-			await this.entitiesWithRelatedEntities(stories, "stories"),
-		);
+		return this.toResult(`Found ${total} stories with external link: ${externalLink}`, stories);
 	}
 
 	async setStoryExternalLinks(storyPublicId: number, externalLinks: string[]) {
@@ -672,5 +768,46 @@ The story will be added to the default state for the workflow.
 				: `Set ${linkCount} external link${linkCount === 1 ? "" : "s"} on story sc-${storyPublicId}`;
 
 		return this.toResult(`${message}. Story URL: ${updatedStory.app_url}`);
+	}
+
+	async getStoryWithRelated(storyPublicId: number) {
+		const story = await this.client.getStory(storyPublicId);
+
+		if (!story)
+			throw new Error(`Failed to retrieve Shortcut story with public ID: ${storyPublicId}.`);
+
+		return this.toResult(
+			`Story: sc-${storyPublicId}`,
+			await this.entityWithRelatedEntities(story, "story"),
+		);
+	}
+
+	async searchStoriesWithRelated(params: QueryParams) {
+		const currentUser = await this.client.getCurrentUser();
+		const query = await buildSearchQuery(params, currentUser);
+		const { stories, total } = await this.client.searchStories(query);
+
+		if (!stories) throw new Error(`Failed to search for stories matching your query: "${query}".`);
+		if (!stories.length) return this.toResult(`Result: No stories found.`);
+
+		return this.toResult(
+			`Result (first ${stories.length} shown of ${total} total stories found):`,
+			await this.entitiesWithRelatedEntities(stories, "stories"),
+		);
+	}
+
+	async getStoriesByExternalLinkWithRelated(externalLink: string) {
+		if (!externalLink) throw new Error("External link is required");
+
+		const { stories, total } = await this.client.getStoriesByExternalLink(externalLink);
+
+		if (!stories || !stories.length) {
+			return this.toResult(`No stories found with external link: ${externalLink}`);
+		}
+
+		return this.toResult(
+			`Found ${total} stories with external link: ${externalLink}`,
+			await this.entitiesWithRelatedEntities(stories, "stories"),
+		);
 	}
 }
